@@ -53,7 +53,7 @@ tab1, tab2, tab3, tab4, tab5,tab6 = st.tabs([
     "🛑 Mark Deletion",
     "📄 View Data",
     "📥 Bulk Import",
-    "🗺️ View on Map"
+    "🗺️ View on a Map"
 ])
 
 def generate_next_uc_id(df, tehsil_pcode: str) -> str:
