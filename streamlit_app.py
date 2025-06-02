@@ -4,6 +4,10 @@ from datetime import datetime
 import pydeck as pdk
 import pydeck as pdk
 import geopandas as gpd
+import os
+from io import BytesIO
+
+
 
 from app.data_loader import load_and_clean_data
 from app.code_generator import (
@@ -47,13 +51,14 @@ df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
 df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
 st.title("📍 Village and Admin Code Manager")
 
-tab1, tab2, tab3, tab4, tab5,tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5,tab6, tab7 = st.tabs([
     "➕ Add Village",
     "➕ Add UC / Tehsil / District",
     "🛑 Mark Deletion",
     "📄 View Data",
     "📥 Bulk Import",
-    "🗺️ View on a Map"
+    "🗺️ View on a Map",
+    "📂 KML Upload & Merge"
 ])
 
 def generate_next_uc_id(df, tehsil_pcode: str) -> str:
@@ -567,7 +572,17 @@ import pandas as pd
 import geopandas as gpd
 import json
 import re
+#tab 6 code
+import pandas as pd
+from io import BytesIO
+import streamlit as st
+import pydeck as pdk
+import geopandas as gpd
+import json
+import re
 
+# Assuming df is already loaded earlier in your main Streamlit app.
+# Begin Tab 6 logic
 with tab6:
     st.header("🗺️ Villages Map Viewer")
     pdk.settings.mapbox_api_key = st.secrets["mapbox"]["token"]
@@ -676,14 +691,13 @@ with tab6:
     layers.append(
         pdk.Layer(
             "ScatterplotLayer",
-            
             data=filtered_df,
             get_position='[longitude, latitude]',
             get_fill_color=[255, 0, 0],
             pickable=True,
-            radius_scale=10,              # Keep this moderate
-            radius_min_pixels=4,          # Minimum dot size on zoom out
-            radius_max_pixels=12,         # Maximum dot size on zoom in
+            radius_scale=10,
+            radius_min_pixels=4,
+            radius_max_pixels=12,
             get_radius=100
         )
     )
@@ -766,3 +780,204 @@ with tab6:
         layers=layers,
         tooltip={"text": "Village: {village_name}\nDistrict: {district}"}
     ), use_container_width=True, height=750)
+
+    # --- DUPLICATE COORDINATES CHECK ---
+    st.subheader("📌 Duplicate Village Points")
+    duplicate_points = geo_df[geo_df.duplicated(subset=["latitude", "longitude"], keep=False)]
+    duplicate_count = duplicate_points.groupby(["latitude", "longitude"]).ngroups
+
+    st.markdown(f"**🔁 Duplicate Locations Found:** `{duplicate_count}`")
+    if duplicate_count > 0:
+        st.dataframe(duplicate_points.reset_index(drop=True))
+
+        output = BytesIO()
+        duplicate_points.to_excel(output, index=False, engine="xlsxwriter")
+        st.download_button(
+            label="📥 Download Duplicates as Excel",
+            data=output.getvalue(),
+            file_name="duplicate_village_coordinates.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.info("No exact duplicate coordinates found.")
+
+
+#TAB 7 CODE HERE
+with tab7:
+    import io
+    import re
+    import os
+    import zipfile
+    import tempfile
+    from xml.dom import minidom
+
+    st.header("📂 KML Upload & Merge")
+    uploaded_kmls = st.file_uploader("Upload KML files", type=["kml"], accept_multiple_files=True)
+
+    def extract_text_from_description(desc_html):
+        """Extract Province, District, Tehsil, UC names from HTML description."""
+        fields = {"Province": "", "District": "", "Tehsil": "", "UC": ""}
+        rows = re.findall(r'<td[^>]*>(.*?)</td>', desc_html)
+        for i in range(len(rows) - 1):
+            label = rows[i].strip().lower()
+            value = rows[i + 1].strip()
+            if value.isdigit():  # Skip numeric codes
+                continue
+            if "province" in label:
+                fields["Province"] = value
+            elif "district" in label:
+                fields["District"] = value
+            elif "tehsil" in label:
+                fields["Tehsil"] = value
+            elif "uc" in label or "union council" in label:
+                fields["UC"] = value
+        return fields
+
+    def parse_kml_file(file):
+        village_data = []
+        boundary_data = []
+        try:
+            xmldoc = minidom.parse(file)
+            placemarks = xmldoc.getElementsByTagName("Placemark")
+            fallback_admin = None
+
+            for placemark in placemarks:
+                name_node = placemark.getElementsByTagName("name")
+                coords_node = placemark.getElementsByTagName("coordinates")
+                desc_node = placemark.getElementsByTagName("description")
+
+                if not name_node or not coords_node or not coords_node[0].firstChild:
+                    continue
+
+                name = name_node[0].firstChild.nodeValue.strip()
+                coords_text = coords_node[0].firstChild.nodeValue.strip()
+                coords_split = coords_text.split()
+
+                if desc_node and desc_node[0].firstChild:
+                    desc_html = desc_node[0].firstChild.nodeValue
+                    admin_fields = extract_text_from_description(desc_html)
+                    if not fallback_admin and all(admin_fields.values()):
+                        fallback_admin = admin_fields
+                else:
+                    admin_fields = fallback_admin or {"Province": "", "District": "", "Tehsil": "", "UC": ""}
+
+                if len(coords_split) == 1:
+                    lon, lat, *_ = coords_split[0].split(',')
+                    village_data.append({
+                        "File": file.name,
+                        "Country": "Pakistan",
+                        "Province": admin_fields.get("Province", ""),
+                        "District": admin_fields.get("District", ""),
+                        "Tehsil": admin_fields.get("Tehsil", ""),
+                        "UC": admin_fields.get("UC", ""),
+                        "Village Name": name,
+                        "Latitude": float(lat),
+                        "Longitude": float(lon)
+                    })
+                else:
+                    boundary_data.append({
+                        "Name": name,
+                        "Description": desc_node[0].firstChild.nodeValue if desc_node and desc_node[0].firstChild else "",
+                        "Coordinates": coords_split
+                    })
+
+        except Exception as e:
+            st.error(f"Failed to parse {file.name}: {e}")
+        return village_data, boundary_data
+
+    def write_combined_kml(villages, boundaries):
+        kml_buffer = io.StringIO()
+        kml_buffer.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+        kml_buffer.write('<kml xmlns="http://www.opengis.net/kml/2.2">\n')
+        kml_buffer.write('  <Document>\n')
+        kml_buffer.write('    <name>All UCs and Villages</name>\n')
+
+        for b in boundaries:
+            kml_buffer.write('    <Placemark>\n')
+            kml_buffer.write(f'      <name>{b["Name"]}</name>\n')
+            kml_buffer.write('      <Polygon>\n')
+            kml_buffer.write('        <outerBoundaryIs><LinearRing><coordinates>\n')
+            for coord in b["Coordinates"]:
+                kml_buffer.write(f'          {coord}\n')
+            kml_buffer.write('        </coordinates></LinearRing></outerBoundaryIs>\n')
+            kml_buffer.write('      </Polygon>\n')
+            kml_buffer.write('    </Placemark>\n')
+
+        for v in villages:
+            kml_buffer.write('    <Placemark>\n')
+            kml_buffer.write(f'      <name>{v["Village Name"]}</name>\n')
+            kml_buffer.write('      <description><![CDATA[\n')
+            kml_buffer.write(f'Province: {v["Province"]}<br>\nDistrict: {v["District"]}<br>Tehsil: {v["Tehsil"]}<br>UC: {v["UC"]}<br>File: {v["File"]}\n')
+            kml_buffer.write('      ]]></description>\n')
+            kml_buffer.write('      <Point>\n')
+            kml_buffer.write(f'        <coordinates>{v["Longitude"]},{v["Latitude"]},0</coordinates>\n')
+            kml_buffer.write('      </Point>\n')
+            kml_buffer.write('    </Placemark>\n')
+
+        kml_buffer.write('  </Document>\n')
+        kml_buffer.write('</kml>\n')
+        return kml_buffer.getvalue()
+
+    if uploaded_kmls and st.button("📥 Process Files"):
+        all_villages = []
+        all_boundaries = []
+        csv_outputs = {}
+
+        for file in uploaded_kmls:
+            villages, boundaries = parse_kml_file(file)
+            if villages:
+                import pandas as pd
+                df_v = pd.DataFrame(villages)
+                csv_outputs[file.name.replace(".kml", "_villages.csv")] = df_v.to_csv(index=False).encode("utf-8")
+                all_villages.extend(villages)
+            all_boundaries.extend(boundaries)
+
+        if all_villages:
+            import pandas as pd
+            st.success(f"Processed {len(uploaded_kmls)} KML files.")
+
+            st.subheader("⬇️ Download Outputs")
+
+            # Merged CSV
+            merged_csv_bytes = pd.DataFrame(all_villages).to_csv(index=False).encode("utf-8")
+            st.download_button("Download Merged CSV", merged_csv_bytes, "all_villages_merged.csv", mime="text/csv")
+
+            # Merged KML
+            combined_kml_text = write_combined_kml(all_villages, all_boundaries)
+            st.download_button("Download Combined KML", combined_kml_text, "all_villages_and_boundaries.kml", mime="application/vnd.google-earth.kml+xml")
+
+            # Individual CSVs
+            st.markdown("### Individual File Exports:")
+            for filename, data in csv_outputs.items():
+                st.download_button(f"{filename}", data, file_name=filename, mime="text/csv")
+
+            # ZIP Download
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, "all_outputs.zip")
+                with zipfile.ZipFile(zip_path, "w") as zipf:
+                    # Merged CSV
+                    merged_csv_path = os.path.join(tmpdir, "all_villages_merged.csv")
+                    with open(merged_csv_path, "wb") as f:
+                        f.write(merged_csv_bytes)
+                    zipf.write(merged_csv_path, "all_villages_merged.csv")
+
+                    # Merged KML
+                    merged_kml_path = os.path.join(tmpdir, "all_villages_and_boundaries.kml")
+                    with open(merged_kml_path, "w", encoding="utf-8") as f:
+                        f.write(combined_kml_text)
+                    zipf.write(merged_kml_path, "all_villages_and_boundaries.kml")
+
+                    # Individual CSVs
+                    for filename, data in csv_outputs.items():
+                        file_path = os.path.join(tmpdir, filename)
+                        with open(file_path, "wb") as f:
+                            f.write(data)
+                        zipf.write(file_path, filename)
+
+                with open(zip_path, "rb") as zip_file:
+                    st.download_button(
+                        label="📦 Download All as ZIP",
+                        data=zip_file.read(),
+                        file_name="all_kml_outputs.zip",
+                        mime="application/zip"
+                    )
