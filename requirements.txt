@@ -3,3 +3,4 @@ pandas
 geopandas
 pydeck
 openpyxl
+xlxwriter
