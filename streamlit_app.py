@@ -814,14 +814,17 @@ with tab7:
     st.header("📂 KML Upload & Merge")
     uploaded_kmls = st.file_uploader("Upload KML files", type=["kml"], accept_multiple_files=True)
 
+    from data.admin_codes import PROVINCES, DISTRICTS
+    from app.code_generator import generate_tehsil_code, generate_uc_code
+    from datetime import datetime
+
     def extract_text_from_description(desc_html):
-        """Extract Province, District, Tehsil, UC names from HTML description."""
         fields = {"Province": "", "District": "", "Tehsil": "", "UC": ""}
         rows = re.findall(r'<td[^>]*>(.*?)</td>', desc_html)
         for i in range(len(rows) - 1):
             label = rows[i].strip().lower()
             value = rows[i + 1].strip()
-            if value.isdigit():  # Skip numeric codes
+            if value.isdigit():
                 continue
             if "province" in label:
                 fields["Province"] = value
@@ -880,9 +883,8 @@ with tab7:
                         "Description": desc_node[0].firstChild.nodeValue if desc_node and desc_node[0].firstChild else "",
                         "Coordinates": coords_split
                     })
-
         except Exception as e:
-            st.error(f"Failed to parse {file.name}: {e}")
+            st.error(f"❌ Failed to parse {file.name}: {e}")
         return village_data, boundary_data
 
     def write_combined_kml(villages, boundaries):
@@ -914,70 +916,117 @@ with tab7:
             kml_buffer.write('      </Point>\n')
             kml_buffer.write('    </Placemark>\n')
 
-        kml_buffer.write('  </Document>\n')
-        kml_buffer.write('</kml>\n')
+        kml_buffer.write('  </Document>\n</kml>\n')
         return kml_buffer.getvalue()
 
-    if uploaded_kmls and st.button("📥 Process Files"):
-        all_villages = []
-        all_boundaries = []
-        csv_outputs = {}
+    # Step 1: Parse uploaded KMLs
+    all_villages = []
+    all_boundaries = []
+    csv_outputs = {}
 
+    if uploaded_kmls and st.button("📥 Process Files"):
         for file in uploaded_kmls:
             villages, boundaries = parse_kml_file(file)
             if villages:
-                import pandas as pd
                 df_v = pd.DataFrame(villages)
                 csv_outputs[file.name.replace(".kml", "_villages.csv")] = df_v.to_csv(index=False).encode("utf-8")
                 all_villages.extend(villages)
             all_boundaries.extend(boundaries)
 
         if all_villages:
-            import pandas as pd
-            st.success(f"Processed {len(uploaded_kmls)} KML files.")
+            st.session_state["parsed_kml_villages"] = all_villages
+            st.success(f"✅ Processed {len(uploaded_kmls)} KML file(s).")
 
-            st.subheader("⬇️ Download Outputs")
+    # Step 2: Show preview & allow download + import
+    if "parsed_kml_villages" in st.session_state:
+        import_df = pd.DataFrame(st.session_state["parsed_kml_villages"])
 
-            # Merged CSV
-            merged_csv_bytes = pd.DataFrame(all_villages).to_csv(index=False).encode("utf-8")
-            st.download_button("Download Merged CSV", merged_csv_bytes, "all_villages_merged.csv", mime="text/csv")
+        # Downloads (moved above success message)
+        st.subheader("⬇️ Download Outputs")
+        merged_csv = import_df.to_csv(index=False).encode("utf-8")
+        merged_kml = write_combined_kml(st.session_state["parsed_kml_villages"], all_boundaries)
 
-            # Merged KML
-            combined_kml_text = write_combined_kml(all_villages, all_boundaries)
-            st.download_button("Download Combined KML", combined_kml_text, "all_villages_and_boundaries.kml", mime="application/vnd.google-earth.kml+xml")
+        st.download_button("📄 Download Merged CSV", merged_csv, "kml_villages.csv", mime="text/csv")
+        st.download_button("🌐 Download Combined KML", merged_kml, "kml_output.kml", mime="application/vnd.google-earth.kml+xml")
 
-            # Individual CSVs
-            st.markdown("### Individual File Exports:")
-            for filename, data in csv_outputs.items():
-                st.download_button(f"{filename}", data, file_name=filename, mime="text/csv")
+        st.subheader("📋 Preview Extracted Villages")
+        st.dataframe(import_df)
 
-            # ZIP Download
-            with tempfile.TemporaryDirectory() as tmpdir:
-                zip_path = os.path.join(tmpdir, "all_outputs.zip")
-                with zipfile.ZipFile(zip_path, "w") as zipf:
-                    # Merged CSV
-                    merged_csv_path = os.path.join(tmpdir, "all_villages_merged.csv")
-                    with open(merged_csv_path, "wb") as f:
-                        f.write(merged_csv_bytes)
-                    zipf.write(merged_csv_path, "all_villages_merged.csv")
+        if st.button("➕ Add Extracted Villages to Masterlist"):
+            new_rows = []
+            for idx, row in import_df.iterrows():
+                prov = row["Province"].strip()
+                dist = row["District"].strip()
+                teh = row["Tehsil"].strip()
+                uc = row["UC"].strip()
+                vill = row["Village Name"].strip()
+                lat = row["Latitude"]
+                lon = row["Longitude"]
 
-                    # Merged KML
-                    merged_kml_path = os.path.join(tmpdir, "all_villages_and_boundaries.kml")
-                    with open(merged_kml_path, "w", encoding="utf-8") as f:
-                        f.write(combined_kml_text)
-                    zipf.write(merged_kml_path, "all_villages_and_boundaries.kml")
+                if not all([prov, dist, teh, uc, vill]):
+                    continue
 
-                    # Individual CSVs
-                    for filename, data in csv_outputs.items():
-                        file_path = os.path.join(tmpdir, filename)
-                        with open(file_path, "wb") as f:
-                            f.write(data)
-                        zipf.write(file_path, filename)
+                if prov not in PROVINCES or dist not in DISTRICTS:
+                    st.warning(f"⚠️ Invalid province/district in row {idx+1}: {prov}, {dist}")
+                    continue
 
-                with open(zip_path, "rb") as zip_file:
-                    st.download_button(
-                        label="📦 Download All as ZIP",
-                        data=zip_file.read(),
-                        file_name="all_kml_outputs.zip",
-                        mime="application/zip"
-                    )
+                prov_code = PROVINCES[prov].replace("PK", "")
+                prov_pcode = f"PK{prov_code}"
+                dist_pcode = DISTRICTS[dist]
+                dist_code = dist_pcode[-2:]
+
+                # Tehsil
+                teh_rows = df[(df["district_pcode"] == dist_pcode) & (df["tehsil"] == teh)]
+                if not teh_rows.empty:
+                    teh_pcode = teh_rows["tehsil_pcode"].iloc[0]
+                    teh_code = teh_pcode[-2:]
+                else:
+                    teh_code = generate_tehsil_code(df, dist_pcode)[-2:]
+                    teh_pcode = f"{dist_pcode}{teh_code}"
+
+                # UC
+                uc_rows = df[(df["tehsil_pcode"] == teh_pcode) & (df["uc"] == uc)]
+                if not uc_rows.empty:
+                    uc_id = uc_rows["uc_id"].iloc[0]
+                    uc_prefix = uc_rows["uc_prefix"].iloc[0]
+                else:
+                    uc_id = generate_uc_code(df, teh_pcode)[-3:]
+                    uc_prefix = f"{teh_pcode}{uc_id}"
+
+                # Village
+                suffixes = df[df["uc_prefix"] == uc_prefix]["village/settlement_code"].dropna().astype(int).tolist()
+                next_suffix = max(suffixes, default=0) + 1
+                village_code = str(next_suffix).zfill(3)
+                village_pcode = f"{uc_prefix}{village_code}"
+
+                new_row = {
+                    "province": prov,
+                    "province_code": prov_code,
+                    "province_pcode": prov_pcode,
+                    "district": dist,
+                    "district_code": dist_code,
+                    "district_pcode": dist_pcode,
+                    "tehsil": teh,
+                    "tehsil_code": teh_code,
+                    "tehsil_pcode": teh_pcode,
+                    "uc": uc,
+                    "uc_id": uc_id,
+                    "uc/vc/nc_pcode": uc_prefix,
+                    "uc_prefix": uc_prefix,
+                    "village_name": vill,
+                    "village/settlement_code": village_code,
+                    "village_pcode_new": village_pcode,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "remarks": f"from KML on {datetime.today().strftime('%Y-%m-%d')}"
+                }
+
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                new_rows.append((vill, village_pcode))
+
+            if new_rows:
+                df = format_code_columns(df)
+                df.to_excel("data/village_masterlist.xlsx", index=False, sheet_name="Masterlist")
+                st.success(f"✅ {len(new_rows)} villages added to masterlist.")
+                for name, pcode in new_rows:
+                    st.write(f"🟢 {name} → {pcode}")
