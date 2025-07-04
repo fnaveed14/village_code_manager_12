@@ -60,7 +60,6 @@ tab1, tab2, tab3, tab4, tab5,tab6, tab7 = st.tabs([
     "🗺️ View on a Map",
     "📂 KML Upload & Merge"
 ])
-pdk.settings.mapbox_api_key = st.secrets["mapbox"]["token"]
 def generate_next_uc_id(df, tehsil_pcode: str) -> str:
     uc_ids = (
         df[df["tehsil_pcode"] == tehsil_pcode]["uc_id"]
@@ -682,8 +681,8 @@ with tab6:
         "Outdoors": "mapbox://styles/mapbox/outdoors-v11"
     }
     selected_style = st.selectbox("🗺️ Select Map Style", list(style_options.keys()))
-    map_style = style_options[selected_style]
-    #map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    #map_style = style_options[selected_style]
+    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
     # Map layers
     layers = []
 
