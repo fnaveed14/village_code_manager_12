@@ -682,8 +682,8 @@ with tab6:
         "Outdoors": "mapbox://styles/mapbox/outdoors-v11"
     }
     selected_style = st.selectbox("🗺️ Select Map Style", list(style_options.keys()))
-    #map_style = style_options[selected_style]
-    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    map_style = style_options[selected_style]
+    #map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
     # Map layers
     layers = []
 
