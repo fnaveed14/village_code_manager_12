@@ -791,7 +791,7 @@ with tab6:
         st.dataframe(duplicate_points.reset_index(drop=True))
 
         output = BytesIO()
-        duplicate_points.to_excel(output, index=False, engine="xlsxwriter")
+        #duplicate_points.to_excel(output, index=False, engine="xlsxwriter")
         st.download_button(
             label="📥 Download Duplicates as Excel",
             data=output.getvalue(),
@@ -800,6 +800,7 @@ with tab6:
         )
     else:
         st.info("No exact duplicate coordinates found.")
+st.text(f"Mapbox token: {st.secrets.get('mapbox', {}).get('token', '❌ Not Found')}")
 
 
 #TAB 7 CODE HERE
