@@ -682,8 +682,8 @@ with tab6:
         "Outdoors": "mapbox://styles/mapbox/outdoors-v11"
     }
     selected_style = st.selectbox("🗺️ Select Map Style", list(style_options.keys()))
-    map_style = style_options[selected_style]
-
+    #map_style = style_options[selected_style]
+    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
     # Map layers
     layers = []
 
@@ -800,9 +800,6 @@ with tab6:
         )
     else:
         st.info("No exact duplicate coordinates found.")
-st.text(f"Mapbox token: {st.secrets.get('mapbox', {}).get('token', '❌ Not Found')}")
-
-
 #TAB 7 CODE HERE
 with tab7:
     import io
@@ -1031,3 +1028,4 @@ with tab7:
                 st.success(f"✅ {len(new_rows)} villages added to masterlist.")
                 for name, pcode in new_rows:
                     st.write(f"🟢 {name} → {pcode}")
+
