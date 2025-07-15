@@ -17,6 +17,8 @@ def load_and_clean_data(file_path="data/village_masterlist.xlsx"):
     Loads the masterlist, normalizes columns, and strictly cleans coordinate values.
     Ensures latitude/longitude are numeric and compatible with pyarrow serialization.
     """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"❌ Excel file not found at: {file_path}")
     # Step 1: Load with all strings to avoid Excel typing issues
     df = pd.read_excel(file_path, sheet_name="Masterlist", dtype=str)
 
