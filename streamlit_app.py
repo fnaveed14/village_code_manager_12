@@ -139,7 +139,7 @@ with tab1:
 
             if valid:
                 df = format_code_columns(df)
-                df.to_excel("/tmp/village_masterlist.xlsx", index=False, sheet_name="Masterlist")
+                df.to_excel("/data/village_masterlist.xlsx", index=False, sheet_name="Masterlist")
                 st.success(f"✅ Added {len(new_rows)} villages.")
                 for vname, vcode in new_rows:
                     st.write(f"🟢 {vname} → {vcode}")
