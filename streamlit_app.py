@@ -566,12 +566,6 @@ with tab5:
         else:
             st.info("ℹ️ No valid villages were imported.")
 
-import pydeck as pdk
-import pandas as pd
-import geopandas as gpd
-import json
-import re
-#tab 6 code
 import pandas as pd
 from io import BytesIO
 import streamlit as st
@@ -580,13 +574,10 @@ import geopandas as gpd
 import json
 import re
 
-# Assuming df is already loaded earlier in your main Streamlit app.
 # Begin Tab 6 logic
 with tab6:
     st.header("🗺️ Villages Map Viewer")
-    pdk.settings.mapbox_api_key = st.secrets["mapbox"]["token"]
 
-    # Clean coordinates
     def clean_coordinate_strict(val):
         try:
             val = str(val).strip()
@@ -604,13 +595,11 @@ with tab6:
         (geo_df["longitude"].between(60, 77))
     ]
 
-    # Session state for filters
     if "tab6_province" not in st.session_state:
         st.session_state["tab6_province"] = "All"
     if "tab6_district" not in st.session_state:
         st.session_state["tab6_district"] = "All"
 
-    # UI Filters
     col1, col2, col3 = st.columns([3, 3, 2])
     with col1:
         prov_list = ["All"] + sorted(geo_df["province"].dropna().unique())
@@ -627,7 +616,6 @@ with tab6:
         show_village_labels = st.checkbox("📝 Show Village Names", value=False)
         show_district_labels = st.checkbox("🏷️ Show District Names", value=False)
 
-    # Reset button
     if st.button("🔄 Reset Filters"):
         st.session_state["tab6_province"] = "All"
         st.session_state["tab6_district"] = "All"
@@ -637,14 +625,12 @@ with tab6:
     st.session_state["tab6_province"] = selected_prov
     st.session_state["tab6_district"] = selected_dist
 
-    # Apply filters
     filtered_df = geo_df.copy()
     if selected_prov != "All":
         filtered_df = filtered_df[filtered_df["province"] == selected_prov]
     if selected_dist != "All":
         filtered_df = filtered_df[filtered_df["district"] == selected_dist]
 
-    # Legend & Count
     colA, colB = st.columns([1.5, 5])
     with colA:
         st.markdown(f"✅ **Villages with Coordinates:** `{geo_df.shape[0]}`")
@@ -657,7 +643,6 @@ with tab6:
         - <span style='color:green;'>───</span> District Boundaries  
         """, unsafe_allow_html=True)
 
-    # Set view state dynamically
     if not filtered_df.empty:
         center_lat = filtered_df["latitude"].mean()
         center_lon = filtered_df["longitude"].mean()
@@ -672,21 +657,38 @@ with tab6:
         pitch=0
     )
 
-    # Map style
+    # Map style options
     style_options = {
-        "Light": "mapbox://styles/mapbox/light-v9",
-        "Dark": "mapbox://styles/mapbox/dark-v9",
-        "Satellite": "mapbox://styles/mapbox/satellite-v9",
-        "Streets": "mapbox://styles/mapbox/streets-v11",
-        "Outdoors": "mapbox://styles/mapbox/outdoors-v11"
+    "Carto Light": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+    "Carto Dark": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    "Satellite (MapTiler)": "https://api.maptiler.com/maps/hybrid/style.json?key=yMz6bHbHIV72pWcLWTGJ"
     }
+
+
     selected_style = st.selectbox("🗺️ Select Map Style", list(style_options.keys()))
-    map_style = style_options[selected_style]
-    #map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-    # Map layers
+    selected_style_value = style_options[selected_style]
+
+    # Create map layers
     layers = []
 
-    # Red Dots Layer for Villages
+    # If satellite, add raster tile layer from ESRI
+    if selected_style_value == "Satellite":
+        layers.append(
+            pdk.Layer(
+                "TileLayer",
+                data=None,
+                tile_size=256,
+                get_url="https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                min_zoom=0,
+                max_zoom=19,
+                opacity=1
+            )
+        )
+        map_style = None  # disable base style background
+    else:
+        map_style = selected_style_value
+
+    # Village points
     layers.append(
         pdk.Layer(
             "ScatterplotLayer",
@@ -714,7 +716,6 @@ with tab6:
             )
         )
 
-    # Province boundaries
     try:
         with open("data/geoBoundaries-PAK-province.geojson", "r", encoding="utf-8") as f:
             province_geojson = json.load(f)
@@ -735,7 +736,6 @@ with tab6:
     except Exception as e:
         st.warning(f"⚠️ Province boundary error: {e}")
 
-    # District boundaries
     try:
         with open("data/geoBoundaries-PAK-ADM2 (1)district.geojson", "r", encoding="utf-8") as f:
             district_geojson = json.load(f)
@@ -772,7 +772,6 @@ with tab6:
     except Exception as e:
         st.warning(f"⚠️ District boundary error: {e}")
 
-    # Render map
     st.pydeck_chart(pdk.Deck(
         map_style=map_style,
         initial_view_state=view_state,
@@ -780,7 +779,6 @@ with tab6:
         tooltip={"text": "Village: {village_name}\nDistrict: {district}"}
     ), use_container_width=True, height=750)
 
-    # --- DUPLICATE COORDINATES CHECK ---
     st.subheader("📌 Duplicate Village Points")
     duplicate_points = geo_df[geo_df.duplicated(subset=["latitude", "longitude"], keep=False)]
     duplicate_count = duplicate_points.groupby(["latitude", "longitude"]).ngroups
@@ -790,7 +788,6 @@ with tab6:
         st.dataframe(duplicate_points.reset_index(drop=True))
 
         output = BytesIO()
-        #duplicate_points.to_excel(output, index=False, engine="xlsxwriter")
         st.download_button(
             label="📥 Download Duplicates as Excel",
             data=output.getvalue(),
@@ -799,6 +796,8 @@ with tab6:
         )
     else:
         st.info("No exact duplicate coordinates found.")
+
+
 #TAB 7 CODE HERE
 with tab7:
     import io

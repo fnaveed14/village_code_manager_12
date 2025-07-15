@@ -4,3 +4,8 @@ geopandas
 pydeck
 openpyxl
 XlsxWriter
+streamlit
+pandas
+geopandas
+folium
+streamlit-folium
