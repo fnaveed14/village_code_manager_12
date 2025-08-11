@@ -416,12 +416,14 @@ with tab4:
 
         st.success(f"✅ District-wise Excel files exported to '{export_dir}' folder.")
 
-   # TAB 5: Bulk Import
+# TAB 5: Bulk Import
 with tab5:
     st.header("📦 Bulk Import Villages")
 
-    # Downloadable Template
     import io
+    from datetime import datetime
+
+    # Downloadable Template
     template_df = pd.DataFrame(columns=["province", "district", "tehsil", "uc", "village_name", "latitude", "longitude"])
     excel_buf = io.BytesIO()
     template_df.to_excel(excel_buf, index=False, engine='openpyxl')
@@ -446,125 +448,144 @@ with tab5:
         st.subheader("📋 Preview Uploaded Data")
         st.dataframe(import_df.head(20), use_container_width=True)
 
-        new_rows = []
+        # Add manual trigger
+        if st.button("🚀 Process Upload"):
+            new_rows = []
+            total = len(import_df)
+            progress_bar = st.progress(0, text="Importing villages...")
 
-        for idx, row in import_df.iterrows():
-            prov = row.get("province", "").strip()
-            dist = row.get("district", "").strip()
-            teh = row.get("tehsil", "").strip()
-            uc = row.get("uc", "").strip()
-            vill = row.get("village_name", "").strip()
-            lat = row.get("latitude", None).strip()
-            lon = row.get("longitude", None).strip()
+            for idx, row in import_df.iterrows():
+                prov = row.get("province", "").strip()
+                dist = row.get("district", "").strip()
+                teh = row.get("tehsil", "").strip()
+                uc = row.get("uc", "").strip()
+                vill = row.get("village_name", "").strip()
+                lat = row.get("latitude", None).strip()
+                lon = row.get("longitude", None).strip()
 
-            if not all([prov, dist, teh, uc, vill]):
-                continue
-
-            if prov not in PROVINCES:
-                st.warning(f"⚠️ Province '{prov}' not found (Row {idx+2})")
-                continue
-
-            # Validate lat/lon if present
-            if lat and lon:
-                try:
-                    lat_f = float(lat)
-                    lon_f = float(lon)
-                    if not (23 <= lat_f <= 37) or not (60 <= lon_f <= 77):
-                        st.warning(f"⚠️ Invalid coordinates for '{vill}' in row {idx+2}")
-                        continue
-                    if len(lat.split(".")[-1]) < 6 or len(lon.split(".")[-1]) < 6:
-                        st.warning(f"⚠️ Coordinates in row {idx+2} must have at least 6 decimal places.")
-                        continue
-                except:
-                    st.warning(f"⚠️ Invalid lat/lon format in row {idx+2}")
+                if not all([prov, dist, teh, uc, vill]):
                     continue
-            else:
-                lat = lon = None
 
-            prov_code = PROVINCES[prov].replace("PK", "")
-            prov_pcode = f"PK{prov_code}"
+                if prov not in PROVINCES:
+                    st.warning(f"⚠️ Province '{prov}' not found (Row {idx+2})")
+                    continue
 
-            # District
-            dist_rows = df[(df["province"] == prov) & (df["district"] == dist)]
-            if not dist_rows.empty:
-                dist_pcode = dist_rows["district_pcode"].iloc[0]
-                dist_code = dist_pcode[-2:]
-            else:
-                existing_pcodes = [v for v in DISTRICTS.values() if v.startswith(prov_pcode)]
-                codes = [int(v[-2:]) for v in existing_pcodes if v[-2:].isdigit()]
-                next_code = max(codes, default=0) + 1
-                dist_code = str(next_code).zfill(2)
-                dist_pcode = f"{prov_pcode}{dist_code}"
-                df = pd.concat([df, pd.DataFrame([{
+                # Validate lat/lon if present
+                if lat and lon:
+                    try:
+                        lat_f = float(lat)
+                        lon_f = float(lon)
+                        if not (23 <= lat_f <= 37) or not (60 <= lon_f <= 77):
+                            st.warning(f"⚠️ Invalid coordinates for '{vill}' in row {idx+2}")
+                            continue
+
+                        lat_str = f"{lat_f:.6f}"
+                        lon_str = f"{lon_f:.6f}"
+
+                        if len(lat_str.split(".")[1]) != 6 or len(lon_str.split(".")[1]) != 6:
+                            st.warning(f"⚠️ Coordinates in row {idx+2} must have exactly 6 decimal places.")
+                            continue
+
+                        lat = lat_str
+                        lon = lon_str
+
+                    except:
+                        st.warning(f"⚠️ Invalid lat/lon format in row {idx+2}")
+                        continue
+                else:
+                    lat = lon = None
+
+                prov_code = PROVINCES[prov].replace("PK", "")
+                prov_pcode = f"PK{prov_code}"
+
+                # District
+                dist_rows = df[(df["province"] == prov) & (df["district"] == dist)]
+                if not dist_rows.empty:
+                    dist_pcode = dist_rows["district_pcode"].iloc[0]
+                    dist_code = dist_pcode[-2:]
+                else:
+                    existing_pcodes = [v for v in DISTRICTS.values() if v.startswith(prov_pcode)]
+                    codes = [int(v[-2:]) for v in existing_pcodes if v[-2:].isdigit()]
+                    next_code = max(codes, default=0) + 1
+                    dist_code = str(next_code).zfill(2)
+                    dist_pcode = f"{prov_pcode}{dist_code}"
+                    df = pd.concat([df, pd.DataFrame([{
+                        "province": prov,
+                        "province_code": prov_code,
+                        "province_pcode": prov_pcode,
+                        "district": dist,
+                        "district_code": dist_code,
+                        "district_pcode": dist_pcode
+                    }])], ignore_index=True)
+
+                # Tehsil
+                teh_rows = df[(df["district_pcode"] == dist_pcode) & (df["tehsil"] == teh)]
+                if not teh_rows.empty:
+                    teh_pcode = teh_rows["tehsil_pcode"].iloc[0]
+                    teh_code = teh_pcode[-2:]
+                else:
+                    existing_tehsils = df[df["district_pcode"] == dist_pcode]["tehsil_code"].dropna().astype(str)
+                    next_teh = max([int(t) for t in existing_tehsils if t.isdigit()] + [0]) + 1
+                    teh_code = str(next_teh).zfill(2)
+                    teh_pcode = f"{dist_pcode}{teh_code}"
+
+                # UC
+                uc_rows = df[(df["tehsil_pcode"] == teh_pcode) & (df["uc"] == uc)]
+                if not uc_rows.empty:
+                    uc_id = uc_rows["uc_id"].iloc[0]
+                    uc_prefix = uc_rows["uc_prefix"].iloc[0]
+                else:
+                    uc_ids = df[df["tehsil_pcode"] == teh_pcode]["uc_id"].dropna().astype(str).str.zfill(3)
+                    next_uc = max([int(uid) for uid in uc_ids if uid.isdigit()] + [0]) + 1
+                    uc_id = str(next_uc).zfill(3)
+                    uc_prefix = f"{teh_pcode}{uc_id}"
+
+                # Village
+                suffixes = df[df["uc_prefix"] == uc_prefix]["village/settlement_code"].dropna().astype(int).tolist()
+                next_suffix = max(suffixes, default=0) + 1
+                village_code = str(next_suffix).zfill(3)
+                village_pcode = f"{uc_prefix}{village_code}"
+
+                new_row = {
                     "province": prov,
                     "province_code": prov_code,
                     "province_pcode": prov_pcode,
                     "district": dist,
                     "district_code": dist_code,
-                    "district_pcode": dist_pcode
-                }])], ignore_index=True)
+                    "district_pcode": dist_pcode,
+                    "tehsil": teh,
+                    "tehsil_code": teh_code,
+                    "tehsil_pcode": teh_pcode,
+                    "uc": uc,
+                    "uc_id": uc_id,
+                    "uc/vc/nc_pcode": uc_prefix,
+                    "uc_prefix": uc_prefix,
+                    "village_name": vill,
+                    "village/settlement_code": village_code,
+                    "village_pcode_new": village_pcode,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "remarks": f"bulk imported on {datetime.today().strftime('%Y-%m-%d')}"
+                }
 
-            # Tehsil
-            teh_rows = df[(df["district_pcode"] == dist_pcode) & (df["tehsil"] == teh)]
-            if not teh_rows.empty:
-                teh_pcode = teh_rows["tehsil_pcode"].iloc[0]
-                teh_code = teh_pcode[-2:]
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                new_rows.append((vill, village_pcode))
+
+                # Progress bar
+                progress = (idx + 1) / total
+                progress_bar.progress(progress, text=f"Processing village {idx + 1} of {total}")
+
+            progress_bar.empty()
+
+            if new_rows:
+                df = format_code_columns(df)
+                df.to_excel("data/village_masterlist.xlsx", index=False, sheet_name="Masterlist")
+                st.success(f"✅ Imported {len(new_rows)} villages.")
+                for name, pcode in new_rows:
+                    st.write(f"🟢 {name} → {pcode}")
             else:
-                existing_tehsils = df[df["district_pcode"] == dist_pcode]["tehsil_code"].dropna().astype(str)
-                next_teh = max([int(t) for t in existing_tehsils if t.isdigit()] + [0]) + 1
-                teh_code = str(next_teh).zfill(2)
-                teh_pcode = f"{dist_pcode}{teh_code}"
+                st.info("ℹ️ No valid villages were imported.")
 
-            # UC
-            uc_rows = df[(df["tehsil_pcode"] == teh_pcode) & (df["uc"] == uc)]
-            if not uc_rows.empty:
-                uc_id = uc_rows["uc_id"].iloc[0]
-                uc_prefix = uc_rows["uc_prefix"].iloc[0]
-            else:
-                uc_ids = df[df["tehsil_pcode"] == teh_pcode]["uc_id"].dropna().astype(str).str.zfill(3)
-                next_uc = max([int(uid) for uid in uc_ids if uid.isdigit()] + [0]) + 1
-                uc_id = str(next_uc).zfill(3)
-                uc_prefix = f"{teh_pcode}{uc_id}"
-
-            # Village
-            suffixes = df[df["uc_prefix"] == uc_prefix]["village/settlement_code"].dropna().astype(int).tolist()
-            next_suffix = max(suffixes, default=0) + 1
-            village_code = str(next_suffix).zfill(3)
-            village_pcode = f"{uc_prefix}{village_code}"
-
-            new_row = {
-                "province": prov,
-                "province_code": prov_code,
-                "province_pcode": prov_pcode,
-                "district": dist,
-                "district_code": dist_code,
-                "district_pcode": dist_pcode,
-                "tehsil": teh,
-                "tehsil_code": teh_code,
-                "tehsil_pcode": teh_pcode,
-                "uc": uc,
-                "uc_id": uc_id,
-                "uc/vc/nc_pcode": uc_prefix,
-                "uc_prefix": uc_prefix,
-                "village_name": vill,
-                "village/settlement_code": village_code,
-                "village_pcode_new": village_pcode,
-                "latitude": lat,
-                "longitude": lon,
-                "remarks": f"bulk imported on {datetime.today().strftime('%Y-%m-%d')}"
-            }
-
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            new_rows.append((vill, village_pcode))
-
-        if new_rows:
-            df = format_code_columns(df)
-            df.to_excel("data/village_masterlist.xlsx", index=False, sheet_name="Masterlist")
-            st.success(f"✅ Imported {len(new_rows)} villages.")
-            for name, pcode in new_rows:
-                st.write(f"🟢 {name} → {pcode}")
-        else:
-            st.info("ℹ️ No valid villages were imported.")
 
 import pandas as pd
 from io import BytesIO
