@@ -498,25 +498,41 @@ with tab5:
                 prov_code = PROVINCES[prov].replace("PK", "")
                 prov_pcode = f"PK{prov_code}"
 
-                # District
+                # District (prefer predefined codes; otherwise create a new one)
                 dist_rows = df[(df["province"] == prov) & (df["district"] == dist)]
                 if not dist_rows.empty:
                     dist_pcode = dist_rows["district_pcode"].iloc[0]
                     dist_code = dist_pcode[-2:]
                 else:
-                    existing_pcodes = [v for v in DISTRICTS.values() if v.startswith(prov_pcode)]
-                    codes = [int(v[-2:]) for v in existing_pcodes if v[-2:].isdigit()]
-                    next_code = max(codes, default=0) + 1
-                    dist_code = str(next_code).zfill(2)
-                    dist_pcode = f"{prov_pcode}{dist_code}"
-                    df = pd.concat([df, pd.DataFrame([{
-                        "province": prov,
-                        "province_code": prov_code,
-                        "province_pcode": prov_pcode,
-                        "district": dist,
-                        "district_code": dist_code,
-                        "district_pcode": dist_pcode
-                    }])], ignore_index=True)
+                    # 1) If district exists in admin_codes.py, use that code
+                    if dist in DISTRICTS:
+                        dist_pcode = DISTRICTS[dist]
+                        # sanity check: district code should match province
+                        if not dist_pcode.startswith(prov_pcode):
+                            st.warning(f"⚠️ District '{dist}' code {dist_pcode} doesn't match province {prov_pcode}. Skipping row {idx+2}.")
+                            continue
+                        dist_code = dist_pcode[-2:]
+                    else:
+                        # 2) Truly new district → generate next code based on what's already in df for this province
+                        existing_pcodes = (
+                            df.loc[df["province_pcode"] == prov_pcode, "district_pcode"]
+                              .dropna().astype(str)
+                        )
+                        codes = [int(pc[-2:]) for pc in existing_pcodes if pc[-2:].isdigit()]
+                        next_code = (max(codes) + 1) if codes else 1
+                        dist_code = str(next_code).zfill(2)
+                        dist_pcode = f"{prov_pcode}{dist_code}"
+
+                    # Ensure a minimal district row exists so later rows in this same import see it
+                    if df[df["district_pcode"] == dist_pcode].empty:
+                        df = pd.concat([df, pd.DataFrame([{
+                            "province": prov,
+                            "province_code": prov_code,
+                            "province_pcode": prov_pcode,
+                            "district": dist,
+                            "district_code": dist_code,
+                            "district_pcode": dist_pcode
+                        }])], ignore_index=True)
 
                 # Tehsil
                 teh_rows = df[(df["district_pcode"] == dist_pcode) & (df["tehsil"] == teh)]
@@ -585,7 +601,6 @@ with tab5:
                     st.write(f"🟢 {name} → {pcode}")
             else:
                 st.info("ℹ️ No valid villages were imported.")
-
 
 import pandas as pd
 from io import BytesIO

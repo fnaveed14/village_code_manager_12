@@ -134,7 +134,7 @@ DISTRICTS = {
     "Khanewal": "PK615",
     "Khushab": "PK616",
     "Lahore": "PK617",
-    "Leiah": "PK618",
+    "Layyah": "PK618",
     "Lodhran": "PK619",
     "Mandi Bahauddin": "PK620",
     "Mianwali": "PK621",
